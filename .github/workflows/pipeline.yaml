@@ -1,0 +1,19 @@
+name: dotnet-pipeline
+
+on : 
+  push : 
+    branches :
+      - develop
+
+jobs : 
+  dotnet-build :
+    runs-on : 'self-hosted'
+
+    steps : 
+      - name : Checkout code 
+        uses : actions/checkout@v5
+
+      - name : dotnet build 
+        run : |
+          dotnet publish -c Release src/Presentation/Nop.Web.NopCommerce -o publish
+           
