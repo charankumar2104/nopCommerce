@@ -12,39 +12,27 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # required by SonarCloud for proper analysis
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.100'
+          dotnet-version: '9.0.x'
 
-      - name: Cache SonarCloud packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar
-          restore-keys: ${{ runner.os }}-sonar
+      - name: Build .NET project
+        run: dotnet build src/Presentation/Nop.Web/Nop.Web.csproj -c Release
 
-      - name: Install SonarScanner for .NET
-        run: dotnet tool install --global dotnet-sonarscanner
-
-      - name: SonarCloud Analysis
+      - name: SonarCloud Scan
+        uses: sonarsource/sonarcloud-github-action@v4
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for PR decoration
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          export PATH="$PATH:/home/runner/.dotnet/tools"
-          dotnet sonarscanner begin \
-            /k:"${{ secrets.PROJECT_KEY }}" \
-            /o:"${{ secrets.ORGANIZATION_KEY }}" \
-            /d:sonar.host.url="https://sonarcloud.io" \
-            /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
-          
-          dotnet build src/Presentation/Nop.Web/Nop.Web.csproj -c Release
-          
-          dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+        with:
+          args: >
+            -Dsonar.projectKey=${{ secrets.PROJECT_KEY }}
+            -Dsonar.organization=${{ secrets.ORGANIZATION_KEY }}
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.sources=.
+
 
 
 
