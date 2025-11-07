@@ -1,32 +1,93 @@
 name: dotnet-pipeline
 
-on : 
-  push : 
-    branches :
+on:
+  push:
+    branches:
       - develop
 
-jobs : 
-  dotnet-build :
-    runs-on : 'ubuntu-latest'
+jobs:
+  dotnet-build:
+    runs-on: ubuntu-latest
 
-    steps : 
-      - name : Checkout code 
-        uses : actions/cache@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # required by SonarCloud for proper analysis
 
-
-      - name: sonarscan
-        uses: sonarsource/sonarcloud-github-action@v3
-        with: 
-          sonartoken: ${{ secrets.SONAR_TOKEN }}
-          sonarURL: ${{ secrets.SONAR_URL }}
-          project_key: ${{ secrets.PROJECT_KEY }}
-          organization_key: ${{ secrets.ORGANIZATION_KEY }}
-
-      - name: setup dotnet
+      - name: Setup .NET
         uses: actions/setup-dotnet@v4
-        with : 
-          dotnet-version: '9.0.100' 
+        with:
+          dotnet-version: '9.0.100'
 
-      - name : dotnet build 
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Install SonarScanner for .NET
+        run: dotnet tool install --global dotnet-sonarscanner
+
+      - name: SonarCloud Analysis
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for PR decoration
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          dotnet publish -c Release src/Presentation/Nop.Web/Nop.Web.csproj -o demo
+          export PATH="$PATH:/home/runner/.dotnet/tools"
+          dotnet sonarscanner begin \
+            /k:"${{ secrets.PROJECT_KEY }}" \
+            /o:"${{ secrets.ORGANIZATION_KEY }}" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+          
+          dotnet build src/Presentation/Nop.Web/Nop.Web.csproj -c Release
+          
+          dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# name: dotnet-pipeline
+
+# on : 
+#   push : 
+#     branches :
+#       - develop
+
+# jobs : 
+#   dotnet-build :
+#     runs-on : 'ubuntu-latest'
+
+#     steps : 
+#       - name : Checkout code 
+#         uses : actions/cache@v4
+
+
+#       - name: sonarscan
+#         uses: sonarsource/sonarcloud-github-action@v3
+#         with: 
+#           sonartoken: ${{ secrets.SONAR_TOKEN }}
+#           sonarURL: ${{ secrets.SONAR_URL }}
+#           project_key: ${{ secrets.PROJECT_KEY }}
+#           organization_key: ${{ secrets.ORGANIZATION_KEY }}
+
+#       - name: setup dotnet
+#         uses: actions/setup-dotnet@v4
+#         with : 
+#           dotnet-version: '9.0.100' 
+
+#       - name : dotnet build 
+#         run: |
+#           dotnet publish -c Release src/Presentation/Nop.Web/Nop.Web.csproj -o demo
