@@ -11,11 +11,12 @@ jobs :
 
     steps : 
       - name : Checkout code 
-        uses : actions/checkout@v5
+        uses : actions/cache@v4
+
 
       - name: sonarscan
         uses: sonarsource/sonarcloud-github-action@v3
-        env: 
+        with: 
           sonartoken: ${{ secrets.SONAR_TOKEN }}
           sonarURL: ${{ secrets.SONAR_URL }}
           project_key: ${{ secrets.PROJECT_KEY }}
