@@ -7,11 +7,24 @@ on :
 
 jobs : 
   dotnet-build :
-    runs-on : 'self-hosted'
+    runs-on : 'ubuntu-latest'
 
     steps : 
       - name : Checkout code 
         uses : actions/checkout@v5
+
+      - name: sonarscan
+        uses: sonarsource/sonarcloud-github-action@v4
+        env: 
+          sonartoken: ${{ secrets.SONAR_TOKEN }}
+          sonarURL: ${{ secrets.SONAR_URL }}
+          project_key: ${{ secrets.PROJECT_KEY }}
+          organization_key: ${{ secrets.ORGANIZATION_KEY }}
+
+      - name: setup dotnet
+        uses: actions/setup-dotnet@v4
+        with : 
+          dotnet-version: '9.0.100' 
 
       - name : dotnet build 
         run: |
