@@ -5,6 +5,10 @@ on:
     branches:
       - develop
 
+env: 
+  ECR_REPOSITORY: nop-commerce
+
+
 jobs:
   dotnet-build:
     runs-on: ubuntu-latest
@@ -32,12 +36,24 @@ jobs:
             -Dsonar.organization=${{ secrets.ORGANIZATION_KEY }}
             -Dsonar.host.url=https://sonarcloud.io
             -Dsonar.sources=.
+      - name: AWS Configure
+        uses: aws-actions/configure-aws-cresentials@v2
+        with: 
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      
+      - name: ECR Login
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-
-
-
-
-
+      - name: Build, Tag, and Push Docker Image to ECR
+        uses: aws-actions/amazon-ecr-build-push-image@v1
+        with: 
+          repository: ${{ env.ECR_REPOSITORY }}
+          image-tags: ${{ github.sha }}, latest   
+          image-tag-mutability: mutable
+          
 
 
 
