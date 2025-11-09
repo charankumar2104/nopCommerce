@@ -43,9 +43,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
       
-      - name: ECR Login
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+      # - name: ECR Login
+      #   id: login-ecr
+      #   uses: aws-actions/amazon-ecr-login@v1
 
       - name: Build, Tag, and Push Docker Image to ECR
         uses: aws-actions/amazon-ecr-build-push-image@v1
