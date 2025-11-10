@@ -7,6 +7,7 @@ on:
 
 env: 
   ECR_REPOSITORY: nop-commerce
+  EKS_CLUSTER_NAME: my-cluster
 
 
 jobs:
@@ -59,7 +60,18 @@ jobs:
 
           # Push to Amazon ECR
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+
+      - name: Configure kubectl for EKS
+        run: |
+          aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+
+  
+      - name: Deploy to EKS
+        run: |
+          kubectl apply -f k8s/
+          kubectl rollout status deployment/nop-commerce-deployment
+          kubectl get svc
 
 
 
