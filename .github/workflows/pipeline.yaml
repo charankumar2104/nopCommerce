@@ -74,7 +74,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
       
       - name: Trigger EKS cluster creation
-        uses: peter-evans/workflow-dispatch@v4
+        uses: peter-evans/repository-dispatch@v4
         with:
           repository: charankumar2104/EKS-terraform-create
           workflow: create.yml
