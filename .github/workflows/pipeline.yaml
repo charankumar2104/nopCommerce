@@ -77,7 +77,7 @@ jobs:
         uses: peter-evans/workflow-dispatch@v1
         with:
           repository: charankumar2104/EKS-terraform-create
-          workflow: create.yml
+          workflow: create.yaml
           token: ${{ secrets.GH_PAT }}
 
 
