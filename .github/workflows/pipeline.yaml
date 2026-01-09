@@ -1,9 +1,12 @@
 name: dotnet-pipeline
 
+# on:
+#   push:
+#     branches:
+#       - develop
+
 on:
-  push:
-    branches:
-      - develop
+  workflow_dispatch:
 
 env: 
   ECR_REPOSITORY: nop-commerce
@@ -69,19 +72,272 @@ jobs:
           format: 'table'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
+      
+      - name: Trigger EKS cluster creation
+        uses: peter-evans/workflow-dispatch@v1
+        with:
+          repository: charankumar2104/EKS-terraform-create
+          workflow: eks-create.yml
+          token: ${{ secrets.GH_PAT }}
 
-          
+      - name: Wait for EKS Cluster to be Active
+        run: |
+          for i in {1..30}; do
+            STATUS=$(aws eks describe-cluster \
+              --name $EKS_CLUSTER_NAME \
+              --region us-east-1 \
+              --query "cluster.status" \
+              --output text)
 
+            echo "Cluster status: $STATUS"
+
+            if [ "$STATUS" = "ACTIVE" ]; then
+              echo "Cluster is ready"
+              break
+            fi
+
+            sleep 30
+          done
+      
       - name: Configure kubectl for EKS
         run: |
           aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
 
-  
-      - name: Deploy to EKS
+      - name: Deploy Application to EKS
         run: |
           kubectl apply -f k8s/
+
+      - name: Wait for Deployment Rollout
+        run: |
           kubectl rollout status deployment/nop-commerce-deployment
-          kubectl get svc
+
+      - name: Install ELK Stack
+        run: |
+          helm repo add elastic https://helm.elastic.co
+          helm repo update
+
+          kubectl create namespace logging || true
+
+          helm upgrade --install elasticsearch elastic/elasticsearch \
+            --namespace logging
+
+          helm upgrade --install kibana elastic/kibana \
+            --namespace logging
+
+          helm upgrade --install filebeat elastic/filebeat \
+            --namespace logging
+
+      - name: Wait for ELK Pods
+        run: |
+          echo "Waiting for Elasticsearch..."
+          kubectl rollout status statefulset/elasticsearch-master -n logging --timeout=600s
+
+          echo "Waiting for Kibana..."
+          kubectl rollout status deployment/kibana-kibana -n logging --timeout=600s
+
+          echo "Waiting for Filebeat..."
+          kubectl rollout status daemonset/filebeat-filebeat -n logging --timeout=600s
+
+      - name: Check Elasticsearch Health
+        run: |
+          kubectl port-forward svc/elasticsearch-master -n logging 9200:9200 &
+          sleep 20
+
+          HEALTH=$(curl -s http://localhost:9200/_cluster/health | jq -r '.status')
+          echo "Elasticsearch cluster health: $HEALTH"
+
+          if [[ "$HEALTH" != "green" && "$HEALTH" != "yellow" ]]; then
+            echo "Elasticsearch is unhealthy"
+            exit 1
+          fi
+
+      - name: Check Kibana Status
+        run: |
+          kubectl port-forward svc/kibana-kibana -n logging 5601:5601 &
+          sleep 20
+
+          STATUS=$(curl -s http://localhost:5601/api/status | jq -r '.status.overall.level')
+          echo "Kibana status: $STATUS"
+
+          if [[ "$STATUS" != "available" ]]; then
+            echo "Kibana is not available"
+            exit 1
+          fi
+      - name: Verify Log Indices in Elasticsearch
+        run: |
+          INDICES=$(curl -s http://localhost:9200/_cat/indices?h=index)
+
+          echo "Existing indices:"
+          echo "$INDICES"
+
+          if ! echo "$INDICES" | grep -E "filebeat|kubernetes"; then
+            echo "No logs are being ingested into Elasticsearch"
+            exit 1
+          fi
+
+      - name: Print Kibana URL
+        run: |
+          KIBANA_URL=$(kubectl get svc kibana-kibana -n logging \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+          echo "======================================"
+          echo "KIBANA DASHBOARD URL:"
+          echo "http://$KIBANA_URL"
+          echo "======================================"
+
+
+      - name: Install Helm
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+
+      - name: Add Prometheus Helm Repo
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+
+      - name: Create Monitoring Namespace
+        run: |
+          kubectl create namespace monitoring || true
+
+      - name: Wait for Monitoring Pods
+        run: |
+          kubectl rollout status deployment/monitoring-grafana -n monitoring
+          kubectl rollout status deployment/monitoring-kube-state-metrics -n monitoring
+
+      - name: Get Prometheus & Grafana URLs
+        run: |
+          echo "Fetching Prometheus and Grafana URLs..."
+
+          PROMETHEUS_URL=$(kubectl get svc monitoring-kube-prometheus-prometheus \
+            -n monitoring \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+          GRAFANA_URL=$(kubectl get svc monitoring-grafana \
+            -n monitoring \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+          echo "======================================"
+          echo "PROMETHEUS DASHBOARD URL:"
+          echo "http://$PROMETHEUS_URL"
+          echo ""
+          echo "GRAFANA DASHBOARD URL:"
+          echo "http://$GRAFANA_URL"
+          echo ""
+          echo "Grafana Credentials:"
+          echo "Username: admin"
+          echo "Password: prom-operator"
+          echo "======================================"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# name: dotnet-pipeline
+
+# on:
+#   push:
+#     branches:
+#       - develop
+
+# env: 
+#   ECR_REPOSITORY: nop-commerce
+#   EKS_CLUSTER_NAME: my-cluster
+
+
+# jobs:
+#   dotnet-build:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Setup .NET
+#         uses: actions/setup-dotnet@v4
+#         with:
+#           dotnet-version: '9.0.100'
+
+#       - name: Build .NET project
+#         run: dotnet build src/Presentation/Nop.Web/Nop.Web.csproj -c Release
+
+#       - name: SonarCloud Scan
+#         uses: sonarsource/sonarcloud-github-action@v3
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+#         with:
+#           args: >
+#             -Dsonar.projectKey=${{ secrets.PROJECT_KEY }}
+#             -Dsonar.organization=${{ secrets.ORGANIZATION_KEY }}
+#             -Dsonar.host.url=https://sonarcloud.io
+#             -Dsonar.sources=.
+#       - name: AWS Configure
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with: 
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: us-east-1
+      
+#       - name: ECR Login
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v2
+
+#       - name: Build, Tag, and Push Docker Image to ECR
+#         env:
+#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+#           IMAGE_TAG: ${{ github.sha }}
+#         run: |
+#           # Build the Docker image
+#           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+#           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+#           # Push to Amazon ECR
+#           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+#           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      
+#       - name: Run Trivy Scan
+#         uses: aquasecurity/trivy-action@master
+#         with:
+#           image-ref: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+#           format: 'table'
+#           vuln-type: 'os,library'
+#           severity: 'CRITICAL,HIGH'
+
+          
+
+#       - name: Configure kubectl for EKS
+#         run: |
+#           aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+
+  
+#       - name: Deploy to EKS
+#         run: |
+#           kubectl apply -f k8s/
+#           kubectl rollout status deployment/nop-commerce-deployment
+#           kubectl get svc
 
 
 
