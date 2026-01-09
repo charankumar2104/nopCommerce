@@ -90,24 +90,31 @@ jobs:
 
 
 
-      - name: Wait for EKS Cluster to be Active
+      - name: Wait for EKS Cluster to be Created
         run: |
-          for i in {1..30}; do
+          for i in {1..40}; do
+            echo "Checking if cluster exists (attempt $i)..."
+
             STATUS=$(aws eks describe-cluster \
               --name $EKS_CLUSTER_NAME \
               --region us-east-1 \
               --query "cluster.status" \
-              --output text)
-
-            echo "Cluster status: $STATUS"
+              --output text 2>/dev/null || echo "NOT_FOUND")
 
             if [ "$STATUS" = "ACTIVE" ]; then
-              echo "Cluster is ready"
+              echo "Cluster is ACTIVE"
               break
+            fi
+
+            if [ "$STATUS" = "CREATING" ]; then
+              echo "Cluster is still creating..."
+            else
+              echo "Cluster not found yet..."
             fi
 
             sleep 30
           done
+
       
       - name: Configure kubectl for EKS
         run: |
