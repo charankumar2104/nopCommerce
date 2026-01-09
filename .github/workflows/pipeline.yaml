@@ -80,6 +80,15 @@ jobs:
       #     workflow: create.yaml
       #     token: ${{ secrets.GH_PAT }}
 
+      - name: Trigger EKS cluster creation (GitHub API)
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            https://api.github.com/repos/charankumar2104/EKS-terraform-create/actions/workflows/create.yaml/dispatches \
+            -d '{"ref":"main"}'
+
+
 
       - name: Wait for EKS Cluster to be Active
         run: |
