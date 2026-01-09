@@ -1,12 +1,12 @@
 name: dotnet-pipeline
 
-# on:
-#   push:
-#     branches:
-#       - develop
-
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - develop
+
+# on:
+#   workflow_dispatch:
 
 env: 
   ECR_REPOSITORY: nop-commerce
