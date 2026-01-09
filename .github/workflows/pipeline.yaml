@@ -74,12 +74,12 @@ jobs:
           severity: 'CRITICAL,HIGH'
       
       - name: Trigger EKS cluster creation
-        uses: peter-evans/repository-dispatch@v4
+        uses: peter-evans/workflow-dispatch@v1
         with:
           repository: charankumar2104/EKS-terraform-create
           workflow: create.yml
           token: ${{ secrets.GH_PAT }}
-          event: my-event
+
 
       - name: Wait for EKS Cluster to be Active
         run: |
