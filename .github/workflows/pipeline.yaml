@@ -1,12 +1,12 @@
 name: dotnet-pipeline
 
-on:
-  push:
-    branches:
-      - develop
-
 # on:
-#   workflow_dispatch:
+#   push:
+#     branches:
+#       - develop
+
+on:
+  workflow_dispatch:
 
 env: 
   ECR_REPOSITORY: nop-commerce
@@ -128,6 +128,16 @@ jobs:
         run: |
           kubectl rollout status deployment/nop-commerce-deployment
 
+      - name: Verify Application Deployment
+        run: |
+          kubectl get pods
+          kubectl get svc
+      
+      - name: Install Helm
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+
       - name: Install ELK Stack
         run: |
           helm repo add elastic https://helm.elastic.co
@@ -147,13 +157,13 @@ jobs:
       - name: Wait for ELK Pods
         run: |
           echo "Waiting for Elasticsearch..."
-          kubectl rollout status statefulset/elasticsearch-master -n logging --timeout=600s
+          kubectl rollout status statefulset/elasticsearch-master -n logging --timeout=900s
 
           echo "Waiting for Kibana..."
-          kubectl rollout status deployment/kibana-kibana -n logging --timeout=600s
+          kubectl rollout status deployment/kibana-kibana -n logging --timeout=900s
 
           echo "Waiting for Filebeat..."
-          kubectl rollout status daemonset/filebeat-filebeat -n logging --timeout=600s
+          kubectl rollout status daemonset/filebeat-filebeat -n logging --timeout=900s
 
       - name: Check Elasticsearch Health
         run: |
@@ -202,11 +212,7 @@ jobs:
           echo "http://$KIBANA_URL"
           echo "======================================"
 
-
-      - name: Install Helm
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          helm version
+          
 
       - name: Add Prometheus Helm Repo
         run: |
