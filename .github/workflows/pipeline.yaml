@@ -154,16 +154,90 @@ jobs:
           helm upgrade --install filebeat elastic/filebeat \
             --namespace logging
 
-      - name: Wait for ELK Pods
+
+
+      ### 🔴 NEW: Initial ELK Diagnostics
+      - name: 🔍 ELK Initial Diagnostics
+        shell: bash
         run: |
-          echo "Waiting for Elasticsearch..."
-          kubectl rollout status statefulset/elasticsearch-master -n logging --timeout=900s
+          echo "========== POD STATUS =========="
+          kubectl get pods -n logging -o wide || true
 
-          echo "Waiting for Kibana..."
-          kubectl rollout status deployment/kibana-kibana -n logging --timeout=900s
+          echo "========== PVC STATUS =========="
+          kubectl get pvc -n logging || true
 
-          echo "Waiting for Filebeat..."
-          kubectl rollout status daemonset/filebeat-filebeat -n logging --timeout=900s
+          echo "========== STORAGE CLASSES =========="
+          kubectl get storageclass || true
+
+          echo "========== NODES =========="
+          kubectl get nodes -o wide || true
+
+          echo "========== EVENTS =========="
+          kubectl get events -n logging --sort-by=.metadata.creationTimestamp || true
+      ### 🔴 END NEW: Initial ELK Diagnostics
+
+      # - name: Wait for ELK Pods
+      #   run: |
+      #     echo "Waiting for Elasticsearch..."
+      #     kubectl rollout status statefulset/elasticsearch-master -n logging --timeout=900s
+
+      #     echo "Waiting for Kibana..."
+      #     kubectl rollout status deployment/kibana-kibana -n logging --timeout=900s
+
+      #     echo "Waiting for Filebeat..."
+      #     kubectl rollout status daemonset/filebeat-filebeat -n logging --timeout=900s
+
+      ### 🔴 NEW: Smart wait for Elasticsearch with auto-debug
+      - name: ⏳ Wait for Elasticsearch (with diagnostics)
+        shell: bash
+        run: |
+          set +e
+
+          kubectl wait --for=condition=ready pod \
+            -l app=elasticsearch-master \
+            -n logging \
+            --timeout=15m
+
+          STATUS=$?
+
+          if [ $STATUS -ne 0 ]; then
+            echo " Elasticsearch did not become ready"
+
+            echo "========== POD DESCRIBE =========="
+            kubectl describe pod elasticsearch-master-0 -n logging || true
+
+            echo "========== PVC =========="
+            kubectl get pvc -n logging || true
+            kubectl describe pvc -n logging || true
+
+            echo "========== EVENTS =========="
+            kubectl get events -n logging --sort-by=.metadata.creationTimestamp || true
+
+            exit 1
+          fi
+
+      ### 🔴 NEW: Detect Pending Pods Early
+      - name: 🚨 Detect Pending Pods
+        shell: bash
+        run: |
+          PENDING=$(kubectl get pods -n logging \
+            --field-selector=status.phase=Pending \
+            --no-headers | wc -l)
+
+          if [ "$PENDING" -gt 0 ]; then
+            echo "❌ Pending pods detected"
+
+            kubectl get pods -n logging -o wide
+            kubectl describe pod elasticsearch-master-0 -n logging || true
+            kubectl get pvc -n logging || true
+            kubectl get events -n logging || true
+
+            exit 1
+          else
+            echo "✅ No pending pods"
+          fi
+
+
 
       - name: Check Elasticsearch Health
         run: |
@@ -190,6 +264,16 @@ jobs:
             echo "Kibana is not available"
             exit 1
           fi
+
+      ### 🔴 NEW: Wait for Kibana safely
+      - name: ⏳ Wait for Kibana
+        shell: bash
+        run: |
+          kubectl wait --for=condition=available deployment/kibana-kibana \
+            -n logging \
+            --timeout=10m
+
+
       - name: Verify Log Indices in Elasticsearch
         run: |
           INDICES=$(curl -s http://localhost:9200/_cat/indices?h=index)
