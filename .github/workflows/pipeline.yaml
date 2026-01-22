@@ -146,14 +146,19 @@ jobs:
 
           kubectl create namespace logging || true
 
+          # 🔴 FIX: Single-node Elasticsearch for CI stability
           helm upgrade --install elasticsearch elastic/elasticsearch \
             -n logging \
+            --set replicas=1 \
+            --set minimumMasterNodes=1 \
             --set service.type=LoadBalancer
 
+          # Kibana
           helm upgrade --install kibana elastic/kibana \
             -n logging \
             --set service.type=LoadBalancer
 
+          # Filebeat
           helm upgrade --install filebeat elastic/filebeat \
             -n logging
 
@@ -218,7 +223,29 @@ jobs:
             --timeout=10m
 
 
-    
+      - name: 🌍 Print ELK LoadBalancer URLs
+        run: |
+          echo "Waiting for LoadBalancer IPs..."
+
+          for i in {1..30}; do
+            ES_URL=$(kubectl get svc elasticsearch-master -n logging \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            KB_URL=$(kubectl get svc kibana-kibana -n logging \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+            if [[ -n "$ES_URL" && -n "$KB_URL" ]]; then
+              break
+            fi
+            sleep 20
+          done
+
+          echo "======================================"
+          echo "ELASTICSEARCH URL:"
+          echo "http://$ES_URL:9200"
+          echo ""
+          echo "KIBANA DASHBOARD URL:"
+          echo "http://$KB_URL:5601"
+          echo "======================================"
 
       - name: Check Elasticsearch Health
         run: |
