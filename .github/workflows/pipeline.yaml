@@ -40,6 +40,7 @@ jobs:
             -Dsonar.organization=${{ secrets.ORGANIZATION_KEY }}
             -Dsonar.host.url=https://sonarcloud.io
             -Dsonar.sources=.
+
       - name: AWS Configure
         uses: aws-actions/configure-aws-credentials@v4
         with: 
@@ -80,7 +81,7 @@ jobs:
       #     workflow: create.yaml
       #     token: ${{ secrets.GH_PAT }}
 
-      - name: Trigger EKS cluster creation (GitHub API)
+      - name: Trigger EKS cluster creation
         run: |
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
@@ -138,7 +139,7 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           helm version
 
-      - name: Install ELK Stack
+      - name: Install ELK Stack (LoadBalancer enabled)
         run: |
           helm repo add elastic https://helm.elastic.co
           helm repo update
@@ -146,34 +147,27 @@ jobs:
           kubectl create namespace logging || true
 
           helm upgrade --install elasticsearch elastic/elasticsearch \
-            --namespace logging
+            -n logging \
+            --set service.type=LoadBalancer
 
           helm upgrade --install kibana elastic/kibana \
-            --namespace logging
+            -n logging \
+            --set service.type=LoadBalancer
 
           helm upgrade --install filebeat elastic/filebeat \
-            --namespace logging
-
+            -n logging
 
 
       ### 🔴 NEW: Initial ELK Diagnostics
       - name: 🔍 ELK Initial Diagnostics
-        shell: bash
         run: |
-          echo "========== POD STATUS =========="
           kubectl get pods -n logging -o wide || true
-
-          echo "========== PVC STATUS =========="
+          kubectl get svc -n logging || true
           kubectl get pvc -n logging || true
-
-          echo "========== STORAGE CLASSES =========="
           kubectl get storageclass || true
-
-          echo "========== NODES =========="
           kubectl get nodes -o wide || true
-
-          echo "========== EVENTS =========="
           kubectl get events -n logging --sort-by=.metadata.creationTimestamp || true
+
       ### 🔴 END NEW: Initial ELK Diagnostics
 
       # - name: Wait for ELK Pods
@@ -188,70 +182,54 @@ jobs:
       #     kubectl rollout status daemonset/filebeat-filebeat -n logging --timeout=900s
 
       ### 🔴 NEW: Smart wait for Elasticsearch with auto-debug
-      - name: ⏳ Wait for Elasticsearch (with diagnostics)
-        shell: bash
+      - name: Wait for Elasticsearch
         run: |
           set +e
-
           kubectl wait --for=condition=ready pod \
             -l app=elasticsearch-master \
             -n logging \
             --timeout=15m
-
           STATUS=$?
-
           if [ $STATUS -ne 0 ]; then
-            echo " Elasticsearch did not become ready"
-
-            echo "========== POD DESCRIBE =========="
-            kubectl describe pod elasticsearch-master-0 -n logging || true
-
-            echo "========== PVC =========="
-            kubectl get pvc -n logging || true
-            kubectl describe pvc -n logging || true
-
-            echo "========== EVENTS =========="
-            kubectl get events -n logging --sort-by=.metadata.creationTimestamp || true
-
+            kubectl describe pod elasticsearch-master-0 -n logging
+            kubectl get events -n logging
             exit 1
           fi
 
+
       ### 🔴 NEW: Detect Pending Pods Early
-      - name: 🚨 Detect Pending Pods
-        shell: bash
+      - name: Detect Pending Pods
         run: |
           PENDING=$(kubectl get pods -n logging \
             --field-selector=status.phase=Pending \
             --no-headers | wc -l)
-
           if [ "$PENDING" -gt 0 ]; then
-            echo "❌ Pending pods detected"
-
             kubectl get pods -n logging -o wide
-            kubectl describe pod elasticsearch-master-0 -n logging || true
-            kubectl get pvc -n logging || true
-            kubectl get events -n logging || true
-
+            kubectl get events -n logging
             exit 1
-          else
-            echo "✅ No pending pods"
           fi
 
+      ### 🔴 NEW: Wait for Kibana safely
+      - name: Wait for Kibana
+        shell: bash
+        run: |
+          kubectl wait --for=condition=available deployment/kibana-kibana \
+            -n logging \
+            --timeout=10m
 
+
+    
 
       - name: Check Elasticsearch Health
         run: |
-          kubectl port-forward svc/elasticsearch-master -n logging 9200:9200 &
-          sleep 20
+          ES_POD=$(kubectl get pod -n logging -l app=elasticsearch-master \
+            -o jsonpath='{.items[0].metadata.name}')
+          kubectl exec -n logging $ES_POD -- \
+            curl -s http://localhost:9200/_cluster/health?pretty
 
-          HEALTH=$(curl -s http://localhost:9200/_cluster/health | jq -r '.status')
-          echo "Elasticsearch cluster health: $HEALTH"
-
-          if [[ "$HEALTH" != "green" && "$HEALTH" != "yellow" ]]; then
-            echo "Elasticsearch is unhealthy"
-            exit 1
-          fi
-
+      - name: Check Kibana Logs
+        run: kubectl logs deployment/kibana-kibana -n logging
+      
       - name: Check Kibana Status
         run: |
           kubectl port-forward svc/kibana-kibana -n logging 5601:5601 &
@@ -265,13 +243,11 @@ jobs:
             exit 1
           fi
 
-      ### 🔴 NEW: Wait for Kibana safely
-      - name: ⏳ Wait for Kibana
-        shell: bash
+
+      - name: Verify Log Indices
         run: |
-          kubectl wait --for=condition=available deployment/kibana-kibana \
-            -n logging \
-            --timeout=10m
+          kubectl exec -n logging $ES_POD -- \
+            curl -s http://localhost:9200/_cat/indices
 
 
       - name: Verify Log Indices in Elasticsearch
